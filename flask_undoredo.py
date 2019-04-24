@@ -4,31 +4,67 @@ from sqlalchemy import (
     Integer,
     String,
     create_engine,
+    text,
     and_,
     event,
     func,
 )
+from sqlalchemy.sql import sqltypes
+from sqlalchemy.engine.default import DefaultDialect
 from sqlalchemy.orm import sessionmaker, scoped_session
 
 from sqlalchemy.sql import dml, select, delete
 from sqlalchemy.ext.declarative import declarative_base
 
-from flask import Blueprint
-
 
 Base = declarative_base()
 
 
-class UndoRedoAction(Base):
-    __tablename__ = "undo_redo_action"
+class StringLiteral(sqltypes.String):
+    def literal_processor(self, dialect):
+        super_processor = super().literal_processor(dialect)
+
+        def process(value):
+            if isinstance(value, int):
+                return text(value)
+            if not isinstance(value, str):
+                value = text(value)
+            result = super_processor(value)
+            if isinstance(result, bytes):
+                result = result.decode(dialect.encoding)
+            return result
+
+        return process
+
+
+class LiteralDialect(DefaultDialect):
+    colspecs = {
+        sqltypes.String: StringLiteral,
+        sqltypes.DateTime: StringLiteral,
+        sqltypes.NullType: StringLiteral,
+    }
+
+
+class UndoAction(Base):
+    __tablename__ = "undo_action"
 
     id = Column(Integer, primary_key=True)
     stack_id = Column(Integer, index=True, nullable=False)
     capture_id = Column(Integer, index=True, nullable=False)
+    active = Column(Boolean, default=True, nullable=False)
 
-    stmt_undo = Column(String, nullable=False)
-    stmt_redo = Column(String, nullable=False)
-    redo = Column(Boolean, default=False, nullable=False)
+    stmt = Column(String, nullable=False)
+
+
+class RedoAction(Base):
+    __tablename__ = "redo_action"
+
+    id = Column(Integer, primary_key=True)
+    stack_id = Column(Integer, index=True, nullable=False)
+    capture_id = Column(Integer, index=True, nullable=False)
+    active = Column(Boolean, default=False, nullable=False)
+
+    stmt = Column(String, nullable=False)
 
 
 class UndoRedoContext(object):
@@ -48,6 +84,14 @@ class UndoRedoContext(object):
 
         stmt_redo = clauseelement.compile(compile_kwargs={"literal_binds": True})
 
+        self.session.add(
+            RedoAction(
+                stack_id=self.stack_id,
+                capture_id=self.last_capture + 1,
+                stmt=str(stmt_redo),
+            )
+        )
+
         if isinstance(clauseelement, dml.Delete):
             for row in conn.execute(query):
                 stmt_undo = (
@@ -57,11 +101,10 @@ class UndoRedoContext(object):
                 )
 
                 self.session.add(
-                    UndoRedoAction(
+                    UndoAction(
                         stack_id=self.stack_id,
                         capture_id=self.last_capture + 1,
-                        stmt_undo=str(stmt_undo),
-                        stmt_redo=str(stmt_redo),
+                        stmt=str(stmt_undo),
                     )
                 )
         elif isinstance(clauseelement, dml.Update):
@@ -86,50 +129,63 @@ class UndoRedoContext(object):
                 )
 
                 self.session.add(
-                    UndoRedoAction(
+                    UndoAction(
                         stack_id=self.stack_id,
                         capture_id=self.last_capture + 1,
-                        stmt_undo=str(stmt_undo),
-                        stmt_redo=str(stmt_redo),
+                        stmt=str(stmt_undo),
                     )
                 )
 
     def after_exec(self, conn, clauseelement, multiparams, params, result):
         if isinstance(clauseelement, dml.Insert):
-            stmt_undo = (
-                delete(clauseelement.table)
-                .where(
-                    and_(
-                        *[
-                            column.__eq__(value)
-                            for (column, value) in zip(
-                                clauseelement.table.primary_key.columns.values(),
-                                result.inserted_primary_key,
-                            )
-                        ]
-                    )
+            new_pk = dict(
+                zip(
+                    clauseelement.table.primary_key.columns.keys(),
+                    result.inserted_primary_key,
                 )
-                .compile(compile_kwargs={"literal_binds": True})
             )
 
-            stmt_redo = clauseelement.values(multiparams).compile(
+            where_clause = and_(
+                *[
+                    column.__eq__(value)
+                    for (column, value) in zip(
+                        clauseelement.table.primary_key.columns.values(),
+                        result.inserted_primary_key,
+                    )
+                ]
+            )
+
+            stmt_redo = clauseelement.values({**multiparams[0], **new_pk}).compile(
                 compile_kwargs={"literal_binds": True}
             )
 
+            stmt_undo = (
+                delete(clauseelement.table)
+                .where(where_clause)
+                .compile(compile_kwargs={"literal_binds": True})
+            )
+
             self.session.add(
-                UndoRedoAction(
+                RedoAction(
                     stack_id=self.stack_id,
                     capture_id=self.last_capture + 1,
-                    stmt_undo=str(stmt_undo),
-                    stmt_redo=str(stmt_redo),
+                    stmt=str(stmt_redo),
+                )
+            )
+
+            self.session.add(
+                UndoAction(
+                    stack_id=self.stack_id,
+                    capture_id=self.last_capture + 1,
+                    stmt=str(stmt_undo),
                 )
             )
 
     def __enter__(self):
         self.last_capture = (
-            self.session.query(UndoRedoAction)
+            self.session.query(UndoAction)
             .filter_by(stack_id=self.stack_id)
-            .with_entities(func.coalesce(func.max(UndoRedoAction.capture_id), 0))
+            .with_entities(func.coalesce(func.max(UndoAction.capture_id), 0))
             .scalar()
         )
 
@@ -145,17 +201,9 @@ class UndoRedoContext(object):
 
 
 class UndoRedo(object):
-    def __init__(
-        self,
-        app=None,
-        url_prefix="/undoredo",
-        endpoint="undoredo",
-        database_url="sqlite:///undoredo.db",
-    ):
+    def __init__(self, app=None, database_url="sqlite:///undoredo.db"):
         self.app = app
         self.app_engine = None
-        self.url_prefix = url_prefix
-        self.endpoint = endpoint
         self.database_url = database_url
 
         if app is not None:
@@ -163,67 +211,78 @@ class UndoRedo(object):
 
         self.session = None
 
-    def init_app(self, app, app_engine=sqlalchemy.engine.Engine):
+    def init_app(self, app):
         engine = create_engine(self.database_url)
 
-        Base.metadata.create_all(engine, checkfirst=True)
+        try:
+            Base.metadata.create_all(engine, checkfirst=True)
+        except:
+            pass
+
         Base.metadata.bind = engine
-
         self.DBSession = sessionmaker(bind=engine)
-
-        blueprint = Blueprint(self.endpoint, __name__, url_prefix=self.url_prefix)
-        blueprint.add_url_rule(
-            "/<int:stack_id>/undo/", "undo", self.undo, methods=["POST"]
-        )
-        blueprint.add_url_rule(
-            "/<int:stack_id>/redo/", "redo", self.redo, methods=["POST"]
-        )
-
-        app.register_blueprint(blueprint)
-        self.app_engine = app_engine
 
     def get_session(self):
         session_obj = scoped_session(self.DBSession)
         self.session = session_obj()
 
-    def capture(self, stack_id):
+    def capture(self, engine, stack_id):
         self.get_session()
-        return UndoRedoContext(self.session, stack_id)
+        return UndoRedoContext(engine, self.session, stack_id)
 
-    def get_actions(self, stack_id, agg_func, redo_flag):
+    def get_actions(self, model, stack_id, agg_func=func.max):
         subquery = (
-            self.session.query(UndoRedoAction)
-            .filter_by(stack_id=stack_id, redo=redo_flag)
-            .with_entities(agg_func(UndoRedoAction.capture_id).label("capture_id"))
+            self.session.query(model)
+            .filter_by(stack_id=stack_id, active=True)
+            .with_entities(agg_func(model.capture_id).label("capture_id"))
             .subquery()
         )
 
-        return self.session.query(UndoRedoAction).join(
-            subquery, UndoRedoAction.capture_id == subquery.c.capture_id
+        return self.session.query(model).join(
+            subquery, model.capture_id == subquery.c.capture_id
         )
 
-    def undo(self, stack_id):
+    def clear_history(self, stack_id):
         self.get_session()
 
-        for row in self.get_actions(stack_id, func.max, False):
-            self.app_engine.execute(row.stmt_undo)
-
-            row.redo = True
-            self.session.add(row)
+        self.session.query(UndoAction).filter_by(active=False).delete()
+        self.session.query(RedoAction).filter_by(active=True).delete()
 
         self.session.commit()
         self.session.close()
-        return "", 200
 
-    def redo(self, stack_id):
+    def undo(self, session, stack_id):
         self.get_session()
 
-        for row in self.get_actions(stack_id, func.min, True):
-            self.app_engine.execute(row.stmt_redo)
+        undo_actions = self.get_actions(UndoAction, stack_id).all()
+        for undo_action in undo_actions:
+            session.execute(undo_action.stmt)
+            undo_action.active = False
 
-            row.redo = False
-            self.session.add(row)
+            self.session.add(undo_action)
+
+        if undo_actions:
+            self.session.query(RedoAction).filter_by(
+                capture_id=undo_actions[0].capture_id
+            ).update({"active": True})
 
         self.session.commit()
         self.session.close()
-        return "", 200
+
+    def redo(self, session, stack_id):
+        self.get_session()
+
+        redo_actions = self.get_actions(RedoAction, stack_id, func.min).all()
+        for redo_action in redo_actions:
+            session.execute(redo_action.stmt)
+            redo_action.active = False
+
+            self.session.add(redo_action)
+
+        if redo_actions:
+            self.session.query(UndoAction).filter_by(
+                capture_id=redo_actions[0].capture_id
+            ).update({"active": True})
+
+        self.session.commit()
+        self.session.close()

@@ -5,9 +5,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from flask import Flask
-from .flask_undoredo import UndoRedoAction, UndoRedo
+from .flask_undoredo import UndoAction, RedoAction, UndoRedo
 
 Base = declarative_base()
+
 
 
 class Widget(Base):
@@ -33,9 +34,7 @@ class UndoRedoTestCase(unittest.TestCase):
         self.app_context = app.app_context()
         self.app_context.push()
 
-        self.undo_redo.init_app(app, self.engine)
-        self.client = app.test_client()
-
+        self.undo_redo.init_app(app)
         self.addCleanup(self.detach)
 
     def detach(self):
@@ -46,24 +45,20 @@ class UndoRedoTestCase(unittest.TestCase):
         self.session.add(Widget(name="Bar"))
         self.session.flush()
 
-        with self.undo_redo.capture(1):
+        with self.undo_redo.capture(self.engine, 1):
             self.session.query(Widget).filter_by(name = "Foo").update({"name": "Baz"})
 
         self.assertEqual(self.session.query(Widget.name).all(), [("Baz",), ("Bar",)])
 
-        response = self.client.post("/undoredo/1/undo/")
-        self.assertEqual(response.status_code, 200)
-
+        self.undo_redo.undo(self.session, 1)
         self.assertEqual(self.session.query(Widget.name).all(), [("Foo",), ("Bar",)])
 
-        response = self.client.post("/undoredo/1/redo/")
-        self.assertEqual(response.status_code, 200)
-
+        self.undo_redo.redo(self.session, 1)
         self.assertEqual(self.session.query(Widget.name).all(), [("Baz",), ("Bar",)])
 
     def test_undo_redo_inserts(self):
         for name in ("Foo", "Bar", "Baz"):
-            with self.undo_redo.capture(1):
+            with self.undo_redo.capture(self.engine, 1):
                 self.session.add(Widget(name=name))
                 self.session.commit()
 
@@ -71,15 +66,13 @@ class UndoRedoTestCase(unittest.TestCase):
         for i in range(0, 4):
             widgets = [widget.name for widget in self.session.query(Widget).all()]
 
-            response = self.client.post("/undoredo/1/undo/")
-            self.assertEqual(response.status_code, 200)
+            self.undo_redo.undo(self.session, 1)
             self.assertEqual(widgets, expected[i])
 
         for i in range(3, 0, -1):
             widgets = [widget.name for widget in self.session.query(Widget).all()]
 
-            response = self.client.post("/undoredo/1/redo/")
-            self.assertEqual(response.status_code, 200)
+            self.undo_redo.redo(self.session, 1)
             self.assertEqual(widgets, expected[i])
 
     def test_undo_redo_deletes(self):
@@ -87,7 +80,7 @@ class UndoRedoTestCase(unittest.TestCase):
         self.session.flush()
 
         for name in ("Foo", "Bar", "Baz"):
-            with self.undo_redo.capture(1):
+            with self.undo_redo.capture(self.engine, 1):
                 self.session.query(Widget).filter_by(name=name).delete()
                 self.session.commit()
 
@@ -96,14 +89,21 @@ class UndoRedoTestCase(unittest.TestCase):
             widgets = [widget.name for widget in self.session.query(Widget).all()]
             self.assertEqual(len(widgets), i)
 
-            response = self.client.post("/undoredo/1/undo/")
-            self.assertEqual(response.status_code, 200)
+            self.undo_redo.undo(self.session, 1)
             self.assertEqual(widgets, expected[i])
 
         for i in range(3, 0, -1):
             widgets = [widget.name for widget in self.session.query(Widget).all()]
             self.assertEqual(len(widgets), i)
 
-            response = self.client.post("/undoredo/1/redo/")
-            self.assertEqual(response.status_code, 200)
+            self.undo_redo.redo(self.session, 1)
             self.assertEqual(widgets, expected[i])
+
+    def test_clear_history(self):
+        for name in ("Foo", "Bar", "Baz"):
+            with self.undo_redo.capture(self.engine, 1):
+                self.session.add(Widget(name=name))
+                self.session.commit()
+
+        self.undo_redo.undo(self.session, 1)
+        self.undo_redo.clear_history(1)

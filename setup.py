@@ -11,7 +11,7 @@ from setuptools import setup
 setup(
     name="Flask-UndoRedo",
     version="1.0.0",
-    license="BSD",
+    license="MIT",
     author="Zach Todd",
     author_email="zchtodd@gmail.com",
     description="Add undo/redo functionality for Flask applications using SQLAlchemy.",
@@ -27,7 +27,7 @@ setup(
     classifiers=[
         "Environment :: Web Environment",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: BSD License",
+        "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python",
         "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
