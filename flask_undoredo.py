@@ -193,7 +193,7 @@ class UndoRedoContext(object):
         event.listen(self.app_engine, "after_execute", self.after_exec)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        event.listen(self.app_engine, "before_execute", self.before_exec)
+        event.remove(self.app_engine, "before_execute", self.before_exec)
         event.remove(self.app_engine, "after_execute", self.after_exec)
 
         self.session.commit()
