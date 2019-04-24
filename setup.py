@@ -12,6 +12,7 @@ setup(
     name="Flask-UndoRedo",
     version="1.0.0",
     license="MIT",
+    url="https://github.com/zchtodd/Flask-UndoRedo",
     author="Zach Todd",
     author_email="zchtodd@gmail.com",
     description="Add undo/redo functionality for Flask applications using SQLAlchemy.",
