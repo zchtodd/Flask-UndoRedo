@@ -127,9 +127,12 @@ class UndoRedoContext(object):
                 ]
             )
 
-            stmt_redo = clauseelement.values({**multiparams[0], **new_pk}).compile(
-                compile_kwargs={"literal_binds": True}
-            )
+            stmt_redo = clauseelement.values(
+                {
+                    **{k: v for (k, v) in multiparams[0].items() if v is not None},
+                    **new_pk,
+                }
+            ).compile(compile_kwargs={"literal_binds": True})
 
             stmt_undo = (
                 delete(clauseelement.table)
