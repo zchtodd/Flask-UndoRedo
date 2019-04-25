@@ -28,9 +28,11 @@ class UndoRedoTestCase(unittest.TestCase):
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-        self.undo_redo = UndoRedo(database_url="sqlite:///:memory:")
+        self.undo_redo = UndoRedo()
 
         app = Flask(__name__)
+        app.config["UNDO_REDO_DATABASE_URI"] = "sqlite:///:memory:"
+
         self.app_context = app.app_context()
         self.app_context.push()
 

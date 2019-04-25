@@ -4,13 +4,10 @@ from sqlalchemy import (
     Integer,
     String,
     create_engine,
-    text,
     and_,
     event,
     func,
 )
-from sqlalchemy.sql import sqltypes
-from sqlalchemy.engine.default import DefaultDialect
 from sqlalchemy.orm import sessionmaker, scoped_session
 
 from sqlalchemy.sql import dml, select, delete
@@ -18,31 +15,6 @@ from sqlalchemy.ext.declarative import declarative_base
 
 
 Base = declarative_base()
-
-
-class StringLiteral(sqltypes.String):
-    def literal_processor(self, dialect):
-        super_processor = super().literal_processor(dialect)
-
-        def process(value):
-            if isinstance(value, int):
-                return text(value)
-            if not isinstance(value, str):
-                value = text(value)
-            result = super_processor(value)
-            if isinstance(result, bytes):
-                result = result.decode(dialect.encoding)
-            return result
-
-        return process
-
-
-class LiteralDialect(DefaultDialect):
-    colspecs = {
-        sqltypes.String: StringLiteral,
-        sqltypes.DateTime: StringLiteral,
-        sqltypes.NullType: StringLiteral,
-    }
 
 
 class UndoAction(Base):
@@ -201,10 +173,9 @@ class UndoRedoContext(object):
 
 
 class UndoRedo(object):
-    def __init__(self, app=None, database_url="sqlite:///undoredo.db"):
+    def __init__(self, app=None):
         self.app = app
         self.app_engine = None
-        self.database_url = database_url
 
         if app is not None:
             self.init_app(app)
@@ -212,7 +183,7 @@ class UndoRedo(object):
         self.session = None
 
     def init_app(self, app):
-        engine = create_engine(self.database_url)
+        engine = create_engine(app.config["UNDO_REDO_DATABASE_URI"])
 
         try:
             Base.metadata.create_all(engine, checkfirst=True)
