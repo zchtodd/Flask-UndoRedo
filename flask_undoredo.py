@@ -197,8 +197,18 @@ class UndoRedo(object):
         session_obj = scoped_session(self.DBSession)
         self.session = session_obj()
 
+    def clear_history(self, stack_id):
+        self.get_session()
+
+        self.session.query(UndoAction).filter_by(active=False).delete()
+        self.session.query(RedoAction).filter_by(active=True).delete()
+
+        self.session.commit()
+        self.session.close()
+
     def capture(self, engine, stack_id):
         self.get_session()
+        self.clear_history(stack_id)
         return UndoRedoContext(engine, self.session, stack_id)
 
     def get_actions(self, model, stack_id, agg_func=func.max):
@@ -212,15 +222,6 @@ class UndoRedo(object):
         return self.session.query(model).join(
             subquery, model.capture_id == subquery.c.capture_id
         )
-
-    def clear_history(self, stack_id):
-        self.get_session()
-
-        self.session.query(UndoAction).filter_by(active=False).delete()
-        self.session.query(RedoAction).filter_by(active=True).delete()
-
-        self.session.commit()
-        self.session.close()
 
     def undo(self, session, stack_id):
         self.get_session()
