@@ -266,8 +266,12 @@ class UndoRedo(object):
                 capture_id=undo_actions[0].capture_id
             ).update({"active": True})
 
+        active_undo = self.session.query(UndoAction).filter_by(active=True).count()
+        active_redo = self.session.query(RedoAction).filter_by(active=True).count()
+
         self.session.commit()
         self.session.close()
+        return (active_undo, active_redo)
 
     def redo(self, session, stack_id):
         self.get_session()
@@ -284,5 +288,9 @@ class UndoRedo(object):
                 capture_id=redo_actions[0].capture_id
             ).update({"active": True})
 
+        active_undo = self.session.query(UndoAction).filter_by(active=True).count()
+        active_redo = self.session.query(RedoAction).filter_by(active=True).count()
+
         self.session.commit()
         self.session.close()
+        return (active_undo, active_redo)

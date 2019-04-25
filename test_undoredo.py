@@ -50,10 +50,16 @@ class UndoRedoTestCase(unittest.TestCase):
 
         self.assertEqual(self.session.query(Widget.name).all(), [("Baz",), ("Bar",)])
 
-        self.undo_redo.undo(self.session, 1)
+        undo, redo = self.undo_redo.undo(self.session, 1)
+
+        self.assertEqual(undo, 0)
+        self.assertEqual(redo, 1)
         self.assertEqual(self.session.query(Widget.name).all(), [("Foo",), ("Bar",)])
 
-        self.undo_redo.redo(self.session, 1)
+        undo, redo = self.undo_redo.redo(self.session, 1)
+
+        self.assertEqual(undo, 1)
+        self.assertEqual(redo, 0)
         self.assertEqual(self.session.query(Widget.name).all(), [("Baz",), ("Bar",)])
 
     def test_undo_redo_inserts(self):
@@ -89,7 +95,7 @@ class UndoRedoTestCase(unittest.TestCase):
             widgets = [widget.name for widget in self.session.query(Widget).all()]
             self.assertEqual(len(widgets), i)
 
-            self.undo_redo.undo(self.session, 1)
+            undo, redo = self.undo_redo.undo(self.session, 1)
             self.assertEqual(widgets, expected[i])
 
         for i in range(3, 0, -1):
