@@ -68,7 +68,7 @@ class UndoRedoContext(object):
             for row in conn.execute(query):
                 stmt_undo = (
                     dml.Insert(clauseelement.table)
-                    .values(**row)
+                    .values(**{k: v for (k, v) in row.items() if v is not None})
                     .compile(compile_kwargs={"literal_binds": True})
                 )
 
