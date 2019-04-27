@@ -56,4 +56,4 @@ As of this writing, Flask-UndoRedo does not support all SQLAlchemy ORM queries. 
 Furthermore, queries that invoke Python or client side defaults will not have those defaults bound to queries.  Any models that should have their changes captured therefore cannot have
 Python column defaults.
 
-Please read (this post)[http://www.codetodd.com/undo-redo-for-flask-and-sqlalchemy/] for more discussion of limitations and implementation details.
+Please read http://www.codetodd.com/undo-redo-for-flask-and-sqlalchemy/ for more discussion of limitations and implementation details.
