@@ -10,7 +10,7 @@ from setuptools import setup
 
 setup(
     name="Flask-UndoRedo",
-    version="1.0.7",
+    version="1.0.8",
     license="MIT",
     url="https://github.com/zchtodd/Flask-UndoRedo",
     author="Zach Todd",

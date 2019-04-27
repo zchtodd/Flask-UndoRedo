@@ -36,15 +36,15 @@ The <code>capture</code> method returns a context manager.  SQL queries executed
 
 ```
 db.session.flush()
-with undo_redo.capture(db.engine, document.id):
+with undo_redo.capture(db.engine, "document", document.id):
     Document.query.filter_by(name=name).delete()
 ```
 
-The <code>capture</code> method requires an engine with which to execute its own queries, as well as an integer value to associate the capture session with.  This same value should be provided to the <code>undo</code> and <code>redo</code> methods in order to manipulate the correct history.
+The <code>capture</code> method requires an engine with which to execute its own queries, an object type, as well as an integer value to associate the capture session with.  These values should be provided to the <code>undo</code> and <code>redo</code> methods in order to manipulate the correct history.
 
 ```
-undo, redo = undo_redo.undo(self.session, document.id)
-undo, redo = undo_redo.redo(self.session, document.id)
+undo, redo = undo_redo.undo(self.session, "document", document.id)
+undo, redo = undo_redo.redo(self.session, "document", document.id)
 ```
 
 Both methods return the count of available undo and redo actions as of when that call was completed.  Calling either method will cause SQL statements that were generated and logged earlier during a capture session to be executed.  Inserts will be issued to negate deletes, deletes to undo inserts, and inverse updates for earlier updates.

@@ -21,6 +21,7 @@ class UndoAction(Base):
     __tablename__ = "undo_action"
 
     id = Column(Integer, primary_key=True)
+    object_type = Column(String, nullable=False)
     stack_id = Column(Integer, index=True, nullable=False)
     capture_id = Column(Integer, index=True, nullable=False)
     active = Column(Boolean, default=True, nullable=False)
@@ -32,6 +33,7 @@ class RedoAction(Base):
     __tablename__ = "redo_action"
 
     id = Column(Integer, primary_key=True)
+    object_type = Column(String, nullable=False)
     stack_id = Column(Integer, index=True, nullable=False)
     capture_id = Column(Integer, index=True, nullable=False)
     active = Column(Boolean, default=False, nullable=False)
@@ -40,9 +42,10 @@ class RedoAction(Base):
 
 
 class UndoRedoContext(object):
-    def __init__(self, app_engine, session, stack_id):
+    def __init__(self, app_engine, session, object_type, stack_id):
         self.app_engine = app_engine
         self.session = session
+        self.object_type = object_type
         self.stack_id = stack_id
         self.last_capture = 0
 
@@ -58,6 +61,7 @@ class UndoRedoContext(object):
 
         self.session.add(
             RedoAction(
+                object_type=self.object_type,
                 stack_id=self.stack_id,
                 capture_id=self.last_capture + 1,
                 stmt=str(stmt_redo),
@@ -74,6 +78,7 @@ class UndoRedoContext(object):
 
                 self.session.add(
                     UndoAction(
+                        object_type=self.object_type,
                         stack_id=self.stack_id,
                         capture_id=self.last_capture + 1,
                         stmt=str(stmt_undo),
@@ -102,6 +107,7 @@ class UndoRedoContext(object):
 
                 self.session.add(
                     UndoAction(
+                        object_type=self.object_type,
                         stack_id=self.stack_id,
                         capture_id=self.last_capture + 1,
                         stmt=str(stmt_undo),
@@ -142,6 +148,7 @@ class UndoRedoContext(object):
 
             self.session.add(
                 RedoAction(
+                    object_type=self.object_type,
                     stack_id=self.stack_id,
                     capture_id=self.last_capture + 1,
                     stmt=str(stmt_redo),
@@ -150,6 +157,7 @@ class UndoRedoContext(object):
 
             self.session.add(
                 UndoAction(
+                    object_type=self.object_type,
                     stack_id=self.stack_id,
                     capture_id=self.last_capture + 1,
                     stmt=str(stmt_undo),
@@ -159,7 +167,7 @@ class UndoRedoContext(object):
     def __enter__(self):
         self.last_capture = (
             self.session.query(UndoAction)
-            .filter_by(stack_id=self.stack_id)
+            .filter_by(object_type=self.object_type, stack_id=self.stack_id)
             .with_entities(func.coalesce(func.max(UndoAction.capture_id), 0))
             .scalar()
         )
@@ -200,58 +208,79 @@ class UndoRedo(object):
         session_obj = scoped_session(self.DBSession)
         self.session = session_obj()
 
-    def clear_history(self, stack_id):
+    def clear_history(self, object_type, stack_id):
         self.get_session()
 
-        self.session.query(UndoAction).filter_by(active=False).delete()
-        self.session.query(RedoAction).filter_by(active=True).delete()
+        self.session.query(UndoAction).filter_by(
+            object_type=object_type, stack_id=stack_id, active=False
+        ).delete()
+
+        self.session.query(RedoAction).filter_by(
+            object_type=object_type, stack_id=stack_id, active=True
+        ).delete()
 
         self.session.commit()
         self.session.close()
 
-    def capture(self, engine, stack_id):
+    def capture(self, engine, object_type, stack_id):
         self.get_session()
-        self.clear_history(stack_id)
-        return UndoRedoContext(engine, self.session, stack_id)
+        self.clear_history(object_type, stack_id)
+        return UndoRedoContext(engine, self.session, object_type, stack_id)
 
-    def get_actions(self, model, stack_id, agg_func=func.max):
+    def get_actions(self, model, object_type, stack_id, agg_func=func.max):
         subquery = (
             self.session.query(model)
-            .filter_by(stack_id=stack_id, active=True)
+            .filter_by(object_type=object_type, stack_id=stack_id, active=True)
             .with_entities(agg_func(model.capture_id).label("capture_id"))
             .subquery()
         )
 
         return self.session.query(model).join(
-            subquery, model.capture_id == subquery.c.capture_id
+            subquery,
+            and_(
+                model.object_type == object_type,
+                model.capture_id == subquery.c.capture_id,
+            ),
         )
 
-    def undo(self, session, stack_id):
+    def undo(self, session, object_type, stack_id):
         self.get_session()
 
-        undo_actions = self.get_actions(UndoAction, stack_id).all()
+        undo_actions = self.get_actions(UndoAction, object_type, stack_id).all()
         for undo_action in undo_actions:
             session.execute(undo_action.stmt)
             undo_action.active = False
 
             self.session.add(undo_action)
-
+        
         if undo_actions:
             self.session.query(RedoAction).filter_by(
-                capture_id=undo_actions[0].capture_id
+                object_type=object_type, capture_id=undo_actions[0].capture_id
             ).update({"active": True})
 
-        active_undo = self.session.query(UndoAction).filter_by(active=True).count()
-        active_redo = self.session.query(RedoAction).filter_by(active=True).count()
+        active_undo = (
+            self.session.query(UndoAction)
+            .filter_by(object_type=object_type, stack_id=stack_id, active=True)
+            .count()
+        )
+
+        active_redo = (
+            self.session.query(RedoAction)
+            .filter_by(object_type=object_type, stack_id=stack_id, active=True)
+            .count()
+        )
 
         self.session.commit()
         self.session.close()
         return (active_undo, active_redo)
 
-    def redo(self, session, stack_id):
+    def redo(self, session, object_type, stack_id):
         self.get_session()
 
-        redo_actions = self.get_actions(RedoAction, stack_id, func.min).all()
+        redo_actions = self.get_actions(
+            RedoAction, object_type, stack_id, func.min
+        ).all()
+
         for redo_action in redo_actions:
             session.execute(redo_action.stmt)
             redo_action.active = False
@@ -260,11 +289,20 @@ class UndoRedo(object):
 
         if redo_actions:
             self.session.query(UndoAction).filter_by(
-                capture_id=redo_actions[0].capture_id
+                object_type=object_type, capture_id=redo_actions[0].capture_id
             ).update({"active": True})
 
-        active_undo = self.session.query(UndoAction).filter_by(active=True).count()
-        active_redo = self.session.query(RedoAction).filter_by(active=True).count()
+        active_undo = (
+            self.session.query(UndoAction)
+            .filter_by(object_type=object_type, stack_id=stack_id, active=True)
+            .count()
+        )
+
+        active_redo = (
+            self.session.query(RedoAction)
+            .filter_by(object_type=object_type, stack_id=stack_id, active=True)
+            .count()
+        )
 
         self.session.commit()
         self.session.close()
