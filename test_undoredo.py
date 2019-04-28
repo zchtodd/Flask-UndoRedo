@@ -10,7 +10,6 @@ from .flask_undoredo import UndoAction, RedoAction, UndoRedo
 Base = declarative_base()
 
 
-
 class Widget(Base):
     __tablename__ = "widget"
 
@@ -47,8 +46,8 @@ class UndoRedoTestCase(unittest.TestCase):
         self.session.add(Widget(name="Bar"))
         self.session.flush()
 
-        with self.undo_redo.capture(self.engine, "widget", 1):
-            self.session.query(Widget).filter_by(name = "Foo").update({"name": "Baz"})
+        with self.undo_redo.capture(self.session, "widget", 1):
+            self.session.query(Widget).filter_by(name="Foo").update({"name": "Baz"})
 
         self.assertEqual(self.session.query(Widget.name).all(), [("Baz",), ("Bar",)])
 
@@ -66,7 +65,7 @@ class UndoRedoTestCase(unittest.TestCase):
 
     def test_undo_redo_inserts(self):
         for name in ("Foo", "Bar", "Baz"):
-            with self.undo_redo.capture(self.engine, "widget", 1):
+            with self.undo_redo.capture(self.session, "widget", 1):
                 self.session.add(Widget(name=name))
                 self.session.commit()
 
@@ -84,11 +83,13 @@ class UndoRedoTestCase(unittest.TestCase):
             self.assertEqual(widgets, expected[i])
 
     def test_undo_redo_deletes(self):
-        self.session.add_all((Widget(name="Foo"), Widget(name="Bar"), Widget(name="Baz")))
+        self.session.add_all(
+            (Widget(name="Foo"), Widget(name="Bar"), Widget(name="Baz"))
+        )
         self.session.flush()
 
         for name in ("Foo", "Bar", "Baz"):
-            with self.undo_redo.capture(self.engine, "widget", 1):
+            with self.undo_redo.capture(self.session, "widget", 1):
                 self.session.query(Widget).filter_by(name=name).delete()
                 self.session.commit()
 
@@ -109,7 +110,7 @@ class UndoRedoTestCase(unittest.TestCase):
 
     def test_clear_history(self):
         for name in ("Foo", "Bar", "Baz"):
-            with self.undo_redo.capture(self.engine, "widget", 1):
+            with self.undo_redo.capture(self.session, "widget", 1):
                 self.session.add(Widget(name=name))
                 self.session.commit()
 

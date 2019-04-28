@@ -36,11 +36,11 @@ The <code>capture</code> method returns a context manager.  SQL queries executed
 
 ```
 db.session.flush()
-with undo_redo.capture(db.engine, "document", document.id):
+with undo_redo.capture(self.session, "document", document.id):
     Document.query.filter_by(name=name).delete()
 ```
 
-The <code>capture</code> method requires an engine with which to execute its own queries, an object type, as well as an integer value to associate the capture session with.  These values should be provided to the <code>undo</code> and <code>redo</code> methods in order to manipulate the correct history.
+The <code>capture</code> method requires a session with which to execute its own queries, an object type, as well as an integer value to associate the capture session with.  These values should be provided to the <code>undo</code> and <code>redo</code> methods in order to manipulate the correct history.
 
 ```
 undo, redo = undo_redo.undo(self.session, "document", document.id)
@@ -52,8 +52,5 @@ Both methods return the count of available undo and redo actions as of when that
 # Limitations
 
 As of this writing, Flask-UndoRedo does not support all SQLAlchemy ORM queries.  Please refer to the test cases as a guide to what statements have been proven to work.
-
-Furthermore, queries that invoke Python or client side defaults will not have those defaults bound to queries.  Any models that should have their changes captured therefore cannot have
-Python column defaults.
 
 Please read http://www.codetodd.com/undo-redo-for-flask-and-sqlalchemy/ for more discussion of limitations and implementation details.
