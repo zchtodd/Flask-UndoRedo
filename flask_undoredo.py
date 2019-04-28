@@ -1,4 +1,5 @@
 import json
+import enum
 
 from sqlalchemy import (
     Column,
@@ -20,6 +21,13 @@ from sqlalchemy.ext.declarative import declarative_base
 Base = declarative_base()
 
 
+class EnumEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, enum.Enum):
+            return obj.name
+        return json.JSONEncoder.default(self, obj)
+
+
 class UndoRedoMixin(object):
     id = Column(Integer, primary_key=True)
 
@@ -36,7 +44,7 @@ class UndoRedoMixin(object):
 
     @params.setter
     def params(self, params):
-        self._params = json.dumps(params)
+        self._params = json.dumps(params, cls=EnumEncoder)
 
 
 class UndoAction(Base, UndoRedoMixin):
