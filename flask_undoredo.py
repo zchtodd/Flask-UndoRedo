@@ -160,7 +160,7 @@ class UndoRedoContext(object):
 
             stmt_redo = clauseelement.values(
                 {
-                    **{c.name: c.default.execute() for c in result.prefetch_cols()},
+                    **{c.name: c.default.arg for c in result.prefetch_cols()},
                     **{c.name: c.server_default.arg for c in result.postfetch_cols()},
                     **{k: v for (k, v) in multiparams[0].items() if v is not None},
                     **new_pk,

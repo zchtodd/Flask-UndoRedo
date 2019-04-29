@@ -15,6 +15,7 @@ class Widget(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+    value = Column(String, default="Hi", nullable=False)
 
 
 class UndoRedoTestCase(unittest.TestCase):
